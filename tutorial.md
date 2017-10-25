@@ -376,9 +376,10 @@ for i in range(10):
 Here, we iterate over the test loader again and forward propagate through our model (again) to make predictions. We then keep a tally of how many correct predictions there were for each class.
 
 ## Creating New Modules
-tom + yan
+yan
 replace Linear
-### Randomly Drop Layers
+## Randomly Drop Layers
+tom
 
 
 ## Inception

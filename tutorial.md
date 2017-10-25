@@ -378,14 +378,167 @@ Here, we iterate over the test loader again and forward propagate through our mo
 ## Creating New Modules
 yan
 replace Linear
-## Randomly Drop Layers
-tom
+
+## Randomly Drop/Repeat Layers
+
+One neat example of how PyTorch's imperative style can achieve something difficult in Keras/TF is to randomly drop or repeat layers.
+
+Take the CIFAR10 example and modify it to repeat `fc2` a random number of times. For example:
+
+```python
+nRepeats = random.randint(1,5)
+for i in range(nRepeats):
+    x = self.fc2(x)
+```
+
+Remember to `import random`. It is unlikely that this will give better performance, however, with deeper networks a similar system has been proposed called Stochastic Depth Networks (https://arxiv.org/abs/1603.09382).
+
+Implementing this in Keras would require building a graph for every possibility and synchronising weights between them. In PyTorch, however, we can put in control statements which are different on every forward propagation if we wish. The automatic differentiation will take care of differentiating each case too.
 
 
-## Inception
-tom
-alex too fill in gaps
-easier in pytorch
+## Building More Complicated Networks
+
+The network that we've already made is an AlexNet style network. It is sequential with 5x5 filters.
+
+Let's expand it to a bigger AlexNet so we can get some better results:
+
+```python
+def __init__(self):
+        super(Net, self).__init__()
+        self.conv1 = nn.Conv2d(3, 96, 5)
+        self.pool = nn.MaxPool2d(2, 2)
+        self.conv2 = nn.Conv2d(96, 256, 5)
+        self.fc1 = nn.Linear(256 * 5 * 5, 384)
+        self.fc2 = nn.Linear(383, 192)
+        self.fc3 = nn.Linear(192, 10)
+        self.relu = nn.ReLU()
+```
+
+The `forward()` function stays the same, but if we look at it, a lot of the code, structures and ideas are repeated. It would be good to encapsulate this in a module. 
+
+There is now a mistake in the module. The error will be in the `forward` function. Use:
+
+```python
+print(x.size())
+```
+
+and look at the tensor sizes of x as x propagates through the different layers. This debugging 'technique' is very familiar to most programmers and something that is impossible to do with other frameworks.
+
+In PyTorch any amount of layers can be put into a separate module and run in the same way as a layer. Networks, modules and layers are all the same, interchangeable, idea.
+
+```python
+def forward(self, x):
+        x = self.conv1(x)
+        x = self.relu(x)
+        x = self.pool(x)
+
+        x = self.conv2(x)
+        x = self.relu(x)
+        x = self.pool(x)
+
+        x = x.view(x.size(0), -1)
+
+        x = self.fc1(x)
+        x = self.relu(x)
+        x = self.fc2(x)
+        x = self.relu(x)
+        x = self.fc3(x)
+        return x
+```
+
+Here, the conv, relu, pool architecture is repeated. Write an AlexNetModule of the form:
+
+```python
+class AlexBlock(nn.Module):
+  def __init__(self, inCh, outCh, K):
+    super(AlexBlock, self).__init__()
+    ...
+
+
+  def forward(self, x):
+    ...
+
+    return x
+```
+
+Using `AlexBlock(3, 96, 5)` should implement the first 3 lines of the old `forward` function. It should be clear how to implement the rest of the network. Check that you get the same results as before.
+
+This may seem trivial but consider a more complicated example such as a small Inception style network (reproduced from: https://arxiv.org/abs/1603.09382)
+
+![alt text](inception.png "Small Inception network diagram")
+
+Here, there are many blocks which are reused. The reusable blocks are the ones at the top of the diagram. Try implementing this network (or skip this if you like).
+
+Here are some stubs for the raw modules. The conv module is already done to demonstrate:
+
+```python
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+class ConvModule(nn.Module):
+  def __init__(self, I,C,K,S, padding=(0,0)):
+    super(ConvModule, self).__init__()
+    # Channels, hidden units, kernel size
+    self.conv = nn.Conv2d(I, C, kernel_size=K, stride=S, padding=padding)
+    self.batchNorm = nn.BatchNorm2d(C, eps=0.001)
+
+  def forward(self, x):
+    x = self.conv(x)
+    x = self.batchNorm(x)
+    return F.relu(x, inplace=True)
+
+class InceptionModule(nn.Module):
+  def __init__(self, I,C1,C3):
+    super(InceptionModule, self).__init__()
+    ...
+
+  def forward(self, x):
+    ...
+
+    # To merge two tensor y and z use a concatentation:
+    outputs = [y, z]
+    return torch.cat(outputs, 1)
+
+class DownsampleModule(nn.Module):
+  def __init__(self, I,C3):
+    super(DownsampleModule, self).__init__()
+    ...
+
+  def forward(self, x):
+    ...
+
+```
+
+Once you have these modules, the rest is just plumbing. Here is a start of the final module:
+
+```python 
+class SmallInception(nn.Module):
+  def __init__(self):
+    super(SmallInception, self).__init__()
+    # Channels, hidden units, kernel size
+    channels = 3
+    self.conv1 = ConvModule(3,96,3,1)
+
+    self.inc1_1 = InceptionModule(96,32,32)
+    self.inc1_2 = InceptionModule(64,32,48)
+    self.down1 = DownsampleModule(80,80)
+
+    ...
+
+  def forward(self, x):
+    x = self.conv1(x)
+
+    x = self.inc1_1(x)
+    x = self.inc1_2(x)
+    x = self.down1(x)
+
+    ...
+
+    return x
+```
+
+You can use this module in place of the old AlexNet module and get a much higher classification accuracy.
 
 ## Ensembles
 tom

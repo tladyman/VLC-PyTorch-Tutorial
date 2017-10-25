@@ -350,6 +350,31 @@ print('Accuracy of the modelwork on the 10000 test images: %d %%' % (
 
 You should see that even with a really simple and small network, you can achieve relatively high testing accuracy (around 50%).
 
+Just for completeness, we will look at which classes performed well and which didn't, just to show that we aren't just guessing:
+
+```python
+class_correct = list(0. for i in range(10))
+class_total = list(0. for i in range(10))
+for data in testloader:
+    images, labels = data
+    labels = labels.cuda()
+    outputs = model(Variable(images).cuda())
+    _, predicted = torch.max(outputs.data, 1)
+    c = (predicted == labels).squeeze()
+    for i in range(4):
+        label = labels[i]
+        class_correct[label] += c[i]
+        class_total[label] += 1
+
+
+for i in range(10):
+    print('Accuracy of %5s : %2d %%' % (
+        classes[i], 100 * class_correct[i] / class_total[i]))
+
+```
+
+Here, we iterate over the test loader again and forward propagate through our model (again) to make predictions. We then keep a tally of how many correct predictions there were for each class.
+
 ## Creating New Modules
 tom + yan
 replace Linear

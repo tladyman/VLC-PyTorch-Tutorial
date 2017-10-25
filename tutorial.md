@@ -463,7 +463,7 @@ class AlexBlock(nn.Module):
 
 Using `AlexBlock(3, 96, 5)` should implement the first 3 lines of the old `forward` function. It should be clear how to implement the rest of the network. Check that you get the same results as before.
 
-This may seem trivial but consider a more complicated example such as a small Inception style network (reproduced from: https://arxiv.org/abs/1603.09382)
+This may seem trivial but consider a more complicated example such as a small Inception style network (reproduced from: https://arxiv.org/abs/1603.09382). (Sorry about the dodgy screenshot with my mouse in it)
 
 ![alt text](inception.png "Small Inception network diagram")
 
@@ -541,11 +541,23 @@ class SmallInception(nn.Module):
 You can use this module in place of the old AlexNet module and get a much higher classification accuracy.
 
 ## Ensembles
-tom
-maybe if it works
-module == layer
-mode(inc,vgg,alex)
-freeze layers
+Now that we have two good networks, AlexNet and Inception, let's ensemble them to improve our results.
+
+This should be as simple as making a new model which has an instance of each network. The `forward()` method should perform the forward pass on each network, saving the result in two separate variables, say `y` and `z`. Adding these tensors gives an ensembled result.
+
+```python
+class Net(nn.Module):
+    def __init__(self):
+        super(Net, self).__init__()
+        self.alex = Alex()
+        self.inception = SmallInception()
+
+    def forward(self, x):
+        ...
+        return x
+```
+
+It's a nice feature than `nn.Module`s and 'layers' are the same thing and can be used completely interchangeably - they both simply perform a tensor operation.
 
 ## Creating Optimizer
 yan
@@ -553,5 +565,5 @@ sgd copy + something
 
 
 ## Adding Noise to Gradients
-both maybe never
-maybe
+
+We haven't got around to writing this, but this is something that is incredibly difficult to do in Keras/TF. In PyTorch, however, you have direct access to the gradients - so try adding some noise proportional to the magnitude of the gradient to the gradient. This might help your optimizer move over local minima.

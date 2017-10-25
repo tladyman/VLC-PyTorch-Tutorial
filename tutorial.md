@@ -20,7 +20,7 @@ You can use the command:
 tpl1g12@minerva:~$ nvidia-smi
 ```
 
-to view current GPU usage and htop to view cpu and other resource usage.
+to view current GPU usage and `htop` to view cpu and other resource usage.
 
 When using the vlc account, please make a directory in home for your code etc. 
 
@@ -43,7 +43,7 @@ The task is to classify whether a sample came from distribution 1 (target label 
 Both of these distributions are simple bivariate Gaussians with different means and identity covariance matrix.
 First, let's generate some data.
 
-```
+```python
 import torch
 
 
@@ -79,7 +79,7 @@ For now, we just initialise the weights and the bias to small random numbers.
 Fill in the initialisation for `weights` and `bias`.
 `weights` should be a matrix of size 2x1 and `bias` should be a vector of size 1, both drawn from a normal distribution with mean 0 and standard deviation 0.01.
 
-```
+```python
 weights = ...
 bias = ...
 
@@ -113,7 +113,7 @@ So far, we've only been using the CPU to do this computation.
 It's really easy to use the GPU instead!
 Insert the following before the `for` loop:
 
-```
+```python
 data = data.cuda()
 labels = labels.cuda()
 weights = weights.cuda()
@@ -136,7 +136,7 @@ For the parameters that should be trained, pass the `requires_grad=True` argumen
 We will use a binary cross-entropy as loss function and let torch do the automatic differentiation.
 Add this before the `for` loop:
 
-```
+```python
 from torch.autograd import Variable
 
 # wrap the tensors in Variables

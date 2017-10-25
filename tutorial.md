@@ -181,10 +181,174 @@ this is a bit of effort, replace with optim
 
 we're done with the basics!
 
-
 ## NN Overview
-tom
-cifar10, connecting, set up
+
+We can also use PyTorch in a more general way of modules and layers so we can use existing implementations of things without writing them ourselves. The blocks of code for this look very similar to Keras or TensorFlow.
+
+You can find the code for this in overview/train.py, but this document will explain block-by-block.
+
+```python
+import torch
+import torchvision
+import torchvision.transforms as transforms
+
+from torch.autograd import Variable
+import torch.nn as nn
+
+import torch.optim as optim
+
+from tqdm import tqdm
+
+nEpoch = 2
+```
+
+These imports should be relatively straightforward. `torch` contains the base types that we worked with before, `torchvision` contains datasets and useful transforms (e.g. to normalise). Optimisers are in `optim` so that we don't have to rely on our own SGD implementation anymore. `tqdm` is just a nice library to make a progress bar.
+
+We will be using the CIFAR10 dataset which is a small dataset of labelled 28x28 colour images. PyTorch makes this really simple:
+
+```python
+# The output of torchvision datasets are PILImage images of range [0, 1].
+# We transform them to Tensors of normalized range [-1, 1]
+
+transform = transforms.Compose(
+    [transforms.ToTensor(),
+     transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
+
+trainset = torchvision.datasets.CIFAR10(root='/datasets', train=True,
+                                        download=True, transform=transform)
+trainloader = torch.utils.data.DataLoader(trainset, batch_size=4,
+                                          shuffle=True, num_workers=1)
+
+testset = torchvision.datasets.CIFAR10(root='/datasets', train=False,
+                                       download=True, transform=transform)
+testloader = torch.utils.data.DataLoader(testset, batch_size=4,
+                                         shuffle=False, num_workers=1)
+
+classes = ('plane', 'car', 'bird', 'cat', 'deer', 'dog', 'frog', 'horse', 'ship', 'truck')
+```
+
+We use a dataset object which defines the dataset and apply a normalising transform to it. A loader is a generator which allows us to load a batch from the dataset. We use the standard CIFAR10 training/testing split. It is very easy to implement new datasets.
+
+When sharing resources, `num_workers` is an important parameter as the machine is limited by CPU cores rather than GPUs. A small batch size is used for fast convergence.
+
+Next, we define our model and put it on the GPU.
+
+```python
+class Net(nn.Module):
+    def __init__(self):
+        super(Net, self).__init__()
+        self.conv1 = nn.Conv2d(3, 6, 5)
+        self.pool = nn.MaxPool2d(2, 2)
+        self.conv2 = nn.Conv2d(6, 16, 5)
+        self.fc1 = nn.Linear(16 * 5 * 5, 120)
+        self.fc2 = nn.Linear(120, 84)
+        self.fc3 = nn.Linear(84, 10)
+        self.relu = nn.ReLU()
+
+    def forward(self, x):
+        x = self.conv1(x)
+        x = self.relu(x)
+        x = self.pool(x)
+
+        x = self.conv2(x)
+        x = self.relu(x)
+        x = self.pool(x)
+
+        x = x.view(x.size(0), -1)
+
+        x = self.fc1(x)
+        x = self.relu(x)
+        x = self.fc2(x)
+        x = self.relu(x)
+        x = self.fc3(x)
+        return x
+
+
+model = Net().cuda()
+```
+
+Every module inherits from `nn.module`. This should look relatively similar to the functional API in keras. One fundamental difference is that **every** time the network forward propagates, the function `forward()` is called. This is different from other frameworks where it is called once to build a graph which is then used. This means that you can put `print()` statements in to debug or `if` or other control statements to change your network iteration by iteration.
+
+`x = x.view(x.size(0), -1)` is used to flatten the 2D tensor into a 1D tensor required by a fully connected layer.
+
+The network as a whole is C -> ReLU-> MP -> C -> ReLU-> MP -> FC -> FC -> FC, similar to an AlexNet but much smaller.
+
+
+Now let's train it:
+
+```python
+criterion = nn.CrossEntropyLoss()
+optimizer = optim.SGD(model.parameters(), lr=0.001, momentum=0.9)
+
+for epoch in range(nEpoch):  # loop over the dataset multiple times
+
+    running_loss = 0.0
+    trainloader = tqdm(trainloader)
+    for i, data in enumerate(trainloader, 0):
+        # get the inputs
+        inputs, labels = data
+
+        # wrap them in Variable
+        inputs, labels = Variable(inputs).cuda(), Variable(labels).cuda()
+
+        # zero the parameter gradients
+        optimizer.zero_grad()
+
+        # forward + backward + optimize
+        outputs = model(inputs)
+        loss = criterion(outputs, labels)
+        loss.backward()
+        optimizer.step()
+
+        # print statistics
+        running_loss = 0.99 * running_loss + 0.01 * loss.data[0]
+        trainloader.set_postfix(loss=running_loss)
+
+print('**** Finished Training ****')
+```
+
+We start by defining a loss and an optimizer and then enter a training loop. This is very different to other frameworks - in PyTorch you control the training loop. This makes it much easier to, say, save the weights on each iteration - you just save them in the loop. 
+
+Inside the epoch loop we iterate over the training loader to form a second loop. This is one full look at the dataset without augmentation so is a true epoch. 
+
+The inputs and labels must be wrapped in a `Variable` object to allow tracking of gradient.
+
+The final part is to compute and update the gradients. This always follows the same pattern of zeroing the old gradients, forward propagating, calculating the loss, backpropagating to calculate the new gradients and then updating the weights with a step. A closer look at this block:
+
+```python
+				# zero the parameter gradients
+        optimizer.zero_grad()
+        # forward propagate (calculate the predicted outputs)
+        outputs = model(inputs)
+        # calculate loss
+        loss = criterion(outputs, labels)
+        # backward propagate
+        loss.backward()
+        # update the weights
+        optimizer.step()
+```
+
+The model should now train and if you run it you should see the loss dropping down. But what have we actually achieved? We need to evaluate on the test set to find out. 
+
+The code for this is very similar to the inside training loop - we are just performing forward propagation over a loader. We sum the correctly predicted classes (where the predictions match the labels from the loader):
+
+```python
+correct = 0
+total = 0
+for data in testloader:
+    images, labels = data
+    labels = labels.cuda()
+
+    outputs = model(Variable(images).cuda())
+    _, predicted = torch.max(outputs.data, 1)
+    total += labels.size(0)
+    correct += (predicted == labels).sum()
+
+print('Accuracy of the modelwork on the 10000 test images: %d %%' % (
+    100 * correct / total))
+```
+
+You should see that even with a really simple and small network, you can achieve relatively high testing accuracy (around 50%).
 
 ## Creating New Modules
 tom + yan

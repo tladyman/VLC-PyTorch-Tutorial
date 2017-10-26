@@ -217,7 +217,7 @@ and the two lines that zero out the gradients with
     optimiser.zero_grad()
 ```
 
-Check the documentation for the `torch.optim` module and see how you can include some momentum in the SGD.
+Check the documentation for the `torch.optim` module and see how you can use SGD with momentum.
 Also, try swapping SGD with a different optimizer such as `RMSprop`.
 
 That's all!

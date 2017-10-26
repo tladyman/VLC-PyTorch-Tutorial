@@ -2,7 +2,7 @@
 
 ## Using group GPUs
 
-We have a number of group machines with GPUs for deep learning: Myrtle, Ned, Athena and Minerva. 
+We have a number of group machines with GPUs for deep learning: Myrtle, Ned, Athena and Minerva.
 
 Today we will use Athena and Minerva which each have 4 GPUs. To connect, use ssh on the vlc shared account:
 
@@ -22,25 +22,30 @@ tpl1g12@minerva:~$ nvidia-smi
 
 to view current GPU usage and `htop` to view cpu and other resource usage.
 
-When using the vlc account, please make a directory in home for your code etc. 
+When using the vlc account, please make a directory in home for your code etc.
 
 To run code, decide which GPU to use and run any python program like this:
 
 ```
-$ CUDA_VISIBLE_DEVICES=X python train.py 
+$ CUDA_VISIBLE_DEVICES=X python train.py
 ```
 
 ## Fundamentals + Autograd Basics
 At the lowest level of abstraction, PyTorch is just a tensor library.
 You can do things just like you can in Matlab or with the Python `numpy` library.
 We will start with a simple logistic regression example.
-In this example, we will do most things manually so that everything is explicit and you know what goes on under the hood.
+In this example, we will do most things manually so that everything is explicit and you know what is happening under the hood.
 In later examples, there will be higher-level abstractions that make life easier than this.
 
-Note: You should keep the documentation at http://pytorch.org/docs/master/torch.html open and make sure that you understand what each function call to the `torch` module is doing.
+Note: You should keep the documentation at http://pytorch.org/docs/master/ open and make sure that you understand what each function call to the `torch` module is doing.
+For this section, we will mostly use the `torch` and `torch.Tensor` entries under Package Reference.
+
+If you are stuck at any point, you can look at a full working example in `overview/basics.py`
+
+### Generating some data
 
 The task is to classify whether a sample came from distribution 1 (target label 0) or distribution 2 (target label 1).
-Both of these distributions are simple bivariate Gaussians with different means and identity covariance matrix.
+Both of these distributions are simple multivariate Gaussians with different means and identity covariance matrix.
 First, let's generate some data.
 
 ```python
@@ -48,11 +53,11 @@ import torch
 
 
 def generate_data(n):  # n is the number of samples to generate from each distribution
-    mean1 = torch.Tensor([0, 0])
-    mean2 = torch.Tensor([2, 1])
+    mean1 = torch.Tensor([0, 0, 0])
+    mean2 = torch.Tensor([1, 1, 1])
 
-    data1 = torch.randn(n, 2) + torch.unsqueeze(mean1, dim=0)
-    data2 = torch.randn(n, 2) + torch.unsqueeze(mean2, dim=0)
+    data1 = torch.randn(n, 3) + torch.unsqueeze(mean1, dim=0)
+    data2 = torch.randn(n, 3) + torch.unsqueeze(mean2, dim=0)
     labels1 = torch.zeros(n)
     labels2 = torch.ones(n)
 
@@ -72,12 +77,15 @@ print('labels', labels)
 ```
 
 Run the program to see some data being printed out.
+We will stick with this for now, but in later sections, we will use the `Dataset` abstraction instead.
+By using a `DataLoader` with the `Dataset`, it will be easy to do get mini-batches of data, do shuffling, and parallelise data loading across multiple CPU cores.
 
+### A simple model
 We can also go ahead and define a logistic regression model: a linear projection followed by a sigmoid.
 For now, we just initialise the weights and the bias to small random numbers.
 
 Fill in the initialisation for `weights` and `bias`.
-`weights` should be a matrix of size 2x1 and `bias` should be a vector of size 1, both drawn from a normal distribution with mean 0 and standard deviation 0.01.
+`weights` should be a matrix of size 3x1 and `bias` should be a vector of size 1, both drawn from a normal distribution with mean 0 and standard deviation 0.01.
 
 ```python
 weights = ...
@@ -96,22 +104,30 @@ def run(x):
 number_correct = 0
 for sample, target in zip(data, labels):
     output = run(sample)
+    output = torch.squeeze(output)
+
+    if not isinstance(target, float):  # this is here to make a later section work without changing stuff...
+        target = target.data[0]  # Variable -> float
+        output = output.data  # Variable -> Tensor
 
     # check whether output is the same as target
-    correct = (torch.squeeze(output) > 0.5).data == target
+    correct = (output > 0.5)[0] == target
     if correct:
         number_correct += 1
 
-print(number_correct)
+
+print('accuracy:', number_correct / data.size(0))
 ```
 
-Run the program to see what the untrained model is currently outputting.
-You can also put more print statements in the `run` function to see what the intermediate values are.
+Add some print statements in the `run` function to print out what the intermediate values are.
+For example, add a `print(x)` before the `return` in `def run(x)` to convince yourself that we did indeed just apply a sigmoid.
 
+### Using the GPU
 Now the magic of PyTorch comes in.
 So far, we've only been using the CPU to do this computation.
+When we want to scale to a bigger problem, that won't be feasible for very long.
 It's really easy to use the GPU instead!
-Insert the following before the `for` loop:
+Insert the following code before the `for` loop:
 
 ```python
 data = data.cuda()
@@ -120,20 +136,22 @@ weights = weights.cuda()
 bias = bias.cuda()
 ```
 
-Now everything runs on the GPU, without having to change anything else! You can see that it worked by the `cuda.FloatTensor` type and the `(GPU 0)` telling you on which GPU device it is.
-While this model is so small that it's easily run on CPUs, that won't be the case for models in Deep Learning.
-There will also be a simpler way of putting parameters on the GPU; you don't need to manually send every parameter to it in the future.
+By sending all the tensors that we are using to the GPU, all the operations on them also run on the GPU without having to change anything else!
+When you print out these tensors, you can see that it worked by the `cuda.FloatTensor` type and the `(GPU 0)` telling you on which GPU device it is.
+There will be a simpler way of putting parameters on the GPU; you don't need to manually send every single parameter to it in the future.
 
+### Training
 Next, we would like to actually train this model using gradient descent.
-While we could compute the gradients manually, there is a much simpler solution that will also scale to massive models.
+While we could compute the gradients manually, there is a much simpler solution that will also scale to huge models.
+
 We will wrap the tensors in the `Variable` type, which will keep track of gradients for us.
 You can always access the wrapped tensor with `.data`, but any operations you do with that won't have a tracked gradient.
 Tensors wrapped in `Variable`s support almost the exact same operations as the tensors themselves: you can use all the familiar `torch.*` functions with them, add them, matrix-multiply them, and so on.
-During these operations, the `Variable` will keep track of which operations were performed on the tensor, which allows you to backpropagate them.
+During these operations, the `Variable` will keep track of which operations were performed on the tensor, which allows you to backpropagate through them.
 When using `Variable`, tensors that don't need a gradient but are involved in the computation need to be wrapped in `Variables` too.
-For the parameters that should be trained, pass the `requires_grad=True` argument to it to tell torch that these gradients should be tracked.
+For the parameters that should be trained, pass the `requires_grad=True` argument to it to tell PyTorch that the gradients for these should be kept when backpropagating.
 
-We will use a binary cross-entropy as loss function and let torch do the automatic differentiation.
+We will use a binary cross-entropy as loss function and let PyTorch do the automatic differentiation.
 Add this before the `for` loop:
 
 ```python
@@ -150,13 +168,12 @@ def binary_crossentropy(prediction, true):
 
 def train(x, target):
     predicted = run(x)
-    loss = binary_crossentropy(predicted, target)
-    loss = torch.mean(loss)
+    loss = binary_crossentropy(predicted, target).mean()
 
-    # compute the gradients
+    # compute the gradients and accumulate them in the Variables that have requires_grad=True
     loss.backward()
 
-    # stochastic gradient descent with step size of 0.01
+    # stochastic gradient descent with step size of 0.1
     # accessing .data is ok here because we don't want to differentiate through the SGD update anyway
     weights.data -= 0.1 * weights.grad.data
     bias.data -= 0.1 * bias.grad.data
@@ -172,14 +189,41 @@ for epoch in range(10):
         train(sample, target)
 ```
 
-Notice how we never had to tell it how to differentiate the loss explicitly.
-Try to replace the binary cross-entropy loss with a mean squared error loss.
+Notice how we never had to tell it how to differentiate the binary cross-entropy, sigmoid, addition with the bias, or matrix multiplication explicitly.
+Because we're using `torch` functions on `Variable`s, it takes care of everything for us.
+
+Again, you can look at the gradients by just `print()`ing them
+Try to replace the binary cross-entropy loss with a loss function of your choice, e.g. mean squared error or hinge loss.
+For hinge loss, you might find the function `torch.clamp` useful.
 
 
-this is a bit of effort, replace with optim
+### Optimizers
+Updating every single parameter yourself with stochastic gradient descent and then clearing the gradients can get a bit tedious.
+Fortunately, there is a `torch.optim` module, which contains various gradient descent optimizers from the basic SGD to Adam to L-BFGS.
 
+Before the `binary_crossentropy` function but after wrapping the tensors in Variables, add this:
+```python
+import torch.optim as optim
 
-we're done with the basics!
+optimiser = optim.SGD([weights, bias], lr=0.1)
+```
+
+In the `train` function, you can now replace two lines with the manual weight updates with
+```python
+    optimiser.step()
+```
+and the two lines that zero out the gradients with
+```python
+    optimiser.zero_grad()
+```
+
+Check the documentation for the `torch.optim` module and see how you can include some momentum in the SGD.
+Also, try swapping SGD with a different optimizer such as `RMSprop`.
+
+That's all!
+There are many things we reimplemented here that are already in PyTorch in the `torch.nn` module, and we will now just use the reference implementations to make our lives easier.
+But hopefully, you can see how the automatic differentiation of `Variable`s directly carries over to the more complex examples we will dive into now.
+
 
 ## NN Overview
 
@@ -307,16 +351,16 @@ for epoch in range(nEpoch):  # loop over the dataset multiple times
 print('**** Finished Training ****')
 ```
 
-We start by defining a loss and an optimizer and then enter a training loop. This is very different to other frameworks - in PyTorch you control the training loop. This makes it much easier to, say, save the weights on each iteration - you just save them in the loop. 
+We start by defining a loss and an optimizer and then enter a training loop. This is very different to other frameworks - in PyTorch you control the training loop. This makes it much easier to, say, save the weights on each iteration - you just save them in the loop.
 
-Inside the epoch loop we iterate over the training loader to form a second loop. This is one full look at the dataset without augmentation so is a true epoch. 
+Inside the epoch loop we iterate over the training loader to form a second loop. This is one full look at the dataset without augmentation so is a true epoch.
 
 The inputs and labels must be wrapped in a `Variable` object to allow tracking of gradient.
 
 The final part is to compute and update the gradients. This always follows the same pattern of zeroing the old gradients, forward propagating, calculating the loss, backpropagating to calculate the new gradients and then updating the weights with a step. A closer look at this block:
 
 ```python
-				# zero the parameter gradients
+        # zero the parameter gradients
         optimizer.zero_grad()
         # forward propagate (calculate the predicted outputs)
         outputs = model(inputs)
@@ -328,7 +372,7 @@ The final part is to compute and update the gradients. This always follows the s
         optimizer.step()
 ```
 
-The model should now train and if you run it you should see the loss dropping down. But what have we actually achieved? We need to evaluate on the test set to find out. 
+The model should now train and if you run it you should see the loss dropping down. But what have we actually achieved? We need to evaluate on the test set to find out.
 
 The code for this is very similar to the inside training loop - we are just performing forward propagation over a loader. We sum the correctly predicted classes (where the predictions match the labels from the loader):
 
@@ -376,8 +420,42 @@ for i in range(10):
 Here, we iterate over the test loader again and forward propagate through our model (again) to make predictions. We then keep a tally of how many correct predictions there were for each class.
 
 ## Creating New Modules
-yan
-replace Linear
+Creating your own modules is fairly straightforward.
+First, see how this Module that does nothing, i.e. returns the identity, is defined.
+
+```python
+class Identity(nn.Module):
+    def __init__(self):
+        super().__init__()
+
+    def forward(self, x):
+        return x
+```
+
+Remember that since the input x is a `Variable`, we don't need to define how to backpropagate through the module.
+
+Now, try to modify this to reimplement a linear projection (you can ignore the bias to keep things slightly simpler).
+You will need to add arguments to the `__init__` function so that you can specify the size of the input and output.
+In order for a module to have a trainable parameter, you have to have `self.<name of parameter> = nn.Parameter(<tensor of initial values>)` in the `__init__` function.
+The tensor of initial values for linear projection are often small random values, just like we've seen in the first section of this tutorial.
+By assigning a `nn.Parameter` as a member variable of the module, the module knows that the parameter exists and will keep track of it.
+In the `forward` function, you have to add a line that does the actual linear projection with the parameter, accessing it as you would usually do in Python classes through `self.<name of parameter>`.
+
+In the end, you should have a self-contained module that does a linear projection.
+You can check whether it works by running:
+
+```python
+from torch.autograd import Variable
+
+data = Variable(torch.rand(16, 200))  # 16 examples in the minibatch, each with 200 dimensions
+module = Linear(200, 100)  # Linear is the module you've defined, taking 200 dimensions to 100 dimensions
+output = module(data)  # forward propagate the data through the module
+print(output)  # this should be a Variable with size 16x100
+```
+
+
+If you're stuck, you can find a fully working solution at `linear/linear.py` in this repository.
+
 
 ## Randomly Drop/Repeat Layers
 
@@ -403,7 +481,7 @@ The network that we've already made is an AlexNet style network. It is sequentia
 Let's expand it to a bigger AlexNet so we can get some better results:
 
 ```python
-def __init__(self):
+    def __init__(self):
         super(Net, self).__init__()
         self.conv1 = nn.Conv2d(3, 96, 5)
         self.pool = nn.MaxPool2d(2, 2)
@@ -414,7 +492,7 @@ def __init__(self):
         self.relu = nn.ReLU()
 ```
 
-The `forward()` function stays the same, but if we look at it, a lot of the code, structures and ideas are repeated. It would be good to encapsulate this in a module. 
+The `forward()` function stays the same, but if we look at it, a lot of the code, structures and ideas are repeated. It would be good to encapsulate this in a module.
 
 There is now a mistake in the module. The error will be in the `forward` function. Use:
 
@@ -427,7 +505,7 @@ and look at the tensor sizes of x as x propagates through the different layers. 
 In PyTorch any amount of layers can be put into a separate module and run in the same way as a layer. Networks, modules and layers are all the same, interchangeable, idea.
 
 ```python
-def forward(self, x):
+    def forward(self, x):
         x = self.conv1(x)
         x = self.relu(x)
         x = self.pool(x)
@@ -512,7 +590,7 @@ class DownsampleModule(nn.Module):
 
 Once you have these modules, the rest is just plumbing. Here is a start of the final module:
 
-```python 
+```python
 class SmallInception(nn.Module):
   def __init__(self):
     super(SmallInception, self).__init__()
@@ -559,11 +637,15 @@ class Net(nn.Module):
 
 It's a nice feature than `nn.Module`s and 'layers' are the same thing and can be used completely interchangeably - they both simply perform a tensor operation.
 
-## Creating Optimizer
-yan
-sgd copy + something
+## Creating an optimizer
+
+We've already written a very basic SGD optimizer in the very first section and replaced it with the `torch.optim` SGD, which supports more features such as momentum and different parameter groups (you can have different learning rates for different parts of a model).
+In this paper https://arxiv.org/pdf/1709.07417.pdf , they find some relatively simple optimisers that are pretty good.
+See whether you can implement one of these, in particular ![g * e^(sign(g) * sign(m))](https://latex.codecogs.com/gif.download?e%5E%7B%5Ctext%7Bsign%7D%28g%29%20%5Ctimes%20%5Ctext%7Bsign%7D%28m%29%7D%20%5Ctimes%20g), where g is the gradient, m is the momentum, and sign is the [sign function](https://en.wikipedia.org/wiki/Sign_function).
+To do this, copy over the source code for SGD, which you can find on the `torch.optim` documentation page, and modify the update rule.
 
 
 ## Adding Noise to Gradients
 
 We haven't got around to writing this, but this is something that is incredibly difficult to do in Keras/TF. In PyTorch, however, you have direct access to the gradients - so try adding some noise proportional to the magnitude of the gradient to the gradient. This might help your optimizer move over local minima.
+You can do this in the optimizer in the previous exercise.

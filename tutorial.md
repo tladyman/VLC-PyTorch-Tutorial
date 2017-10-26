@@ -543,7 +543,7 @@ Using `AlexBlock(3, 96, 5)` should implement the first 3 lines of the old `forwa
 
 This may seem trivial but consider a more complicated example such as a small Inception style network (reproduced from: https://arxiv.org/abs/1603.09382). (Sorry about the dodgy screenshot with my mouse in it)
 
-![alt text](inception.png "Small Inception network diagram")
+![alt text](https://github.com/tladyman/VLC-PyTorch-Tutorial/blob/master/inception.png "Small Inception network diagram")
 
 Here, there are many blocks which are reused. The reusable blocks are the ones at the top of the diagram. Try implementing this network (or skip this if you like).
 

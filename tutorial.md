@@ -641,8 +641,12 @@ It's a nice feature than `nn.Module`s and 'layers' are the same thing and can be
 
 We've already written a very basic SGD optimizer in the very first section and replaced it with the `torch.optim` SGD, which supports more features such as momentum and different parameter groups (you can have different learning rates for different parts of a model).
 In this paper https://arxiv.org/pdf/1709.07417.pdf , they find some relatively simple optimisers that are pretty good.
-See whether you can implement one of these, in particular ![g * e^(sign(g) * sign(m))](https://www.codecogs.com/latex/eqneditor.php?latex%3Dg%20%5Ctimes%20e%5E%7B%5Ctext%7Bsign%7D(g)%20%5Ctimes%20%5Ctext%7Bsign%7D(m)%7D), where g is the gradient, m is the momentum, and sign is the [sign function](https://en.wikipedia.org/wiki/Sign_function).
-To do this, copy over the source code for SGD, which you can find on the `torch.optim` documentation page, and modify the update rule.
+See whether you can implement one of these, in particular
+
+![g * e^(sign(g) * sign(m))](https://i.imgur.com/7rEnAwZ.png)
+
+where g is the gradient, m is the momentum of the gradient, and sign is the [sign function](https://en.wikipedia.org/wiki/Sign_function).
+To do this, copy over the source code for SGD (you can find this on the `torch.optim` documentation page), figure out how it roughly works, and modify the update rule.
 
 
 ## Adding Noise to Gradients
